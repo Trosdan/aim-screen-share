@@ -1,0 +1,6 @@
+{
+  "name": "ScreenShare Live",
+  "description": "Aplicação completa de compartilhamento de tela multi-stream em tempo real com WebRTC e WebSockets inspirada no Discord.",
+  "requestFramePermissions": ["display-capture", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

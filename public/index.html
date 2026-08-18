@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full bg-[#313338]">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScreenShare Live - Compartilhamento de Tela estilo Discord</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Socket.io client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    @keyframes pulseLive { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .animate-live { animation: pulseLive 1.5s infinite; }
+  </style>
+</head>
+<body class="h-full text-white flex flex-col font-sans select-none overflow-hidden">
+
+  <!-- Header -->
+  <header class="h-14 bg-[#1e1f22] border-b border-[#2b2d31] flex items-center justify-between px-6 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-[#5865F2] flex items-center justify-center font-bold text-white shadow-md">
+        📺
+      </div>
+      <h1 class="font-bold text-base tracking-tight">ScreenShare <span class="text-xs bg-[#5865F2] px-1.5 py-0.5 rounded text-white font-mono">LIVE</span></h1>
+    </div>
+    <div id="room-status-badge" class="hidden items-center space-x-2 text-xs">
+      <span id="current-room-name" class="font-bold text-gray-200"></span>
+      <button id="btn-copy-link" class="bg-[#2b2d31] hover:bg-[#35373c] px-3 py-1 rounded-lg border border-[#35373c] text-gray-300 hover:text-white">🔗 Convidar</button>
+      <button id="btn-leave-room" class="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1 rounded-lg">Sair</button>
+    </div>
+  </header>
+
+  <!-- LOBBY VIEW -->
+  <main id="lobby-view" class="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto">
+    <div class="w-full max-w-xl bg-[#2b2d31] border border-[#1e1f22] rounded-2xl p-6 shadow-2xl space-y-6">
+      
+      <div class="text-center space-y-1">
+        <h2 class="text-2xl font-black text-white">Transmissão de Tela P2P</h2>
+        <p class="text-xs text-[#949ba4]">Compartilhe sua tela e assista múltiplas transmissões em tempo real.</p>
+      </div>
+
+      <!-- User Nickname -->
+      <div class="space-y-1.5">
+        <label class="text-xs font-bold text-[#949ba4] uppercase">Seu Apelido</label>
+        <input id="input-username" type="text" placeholder="Ex: Jordan" class="w-full bg-[#1e1f22] px-4 py-2.5 rounded-xl border border-[#35373c] text-white focus:outline-none focus:border-[#5865F2]" />
+      </div>
+
+      <!-- Action Tabs / Grid -->
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Create Room Box -->
+        <div class="bg-[#1e1f22] p-4 rounded-xl border border-[#35373c] space-y-3 flex flex-col justify-between">
+          <div class="space-y-2">
+            <h3 class="text-sm font-bold text-white">Criar Nova Sala</h3>
+            <input id="input-room-name" type="text" placeholder="Nome da sala..." class="w-full bg-[#2b2d31] px-3 py-2 rounded-lg text-xs border border-[#35373c] text-white" />
+            <div class="flex items-center space-x-2 pt-1">
+              <input type="checkbox" id="check-is-private" class="rounded accent-[#5865F2]" />
+              <label for="check-is-private" class="text-xs text-gray-300">Proteger com senha</label>
+            </div>
+            <input id="input-create-password" type="password" placeholder="Senha da sala..." class="w-full bg-[#2b2d31] px-3 py-2 rounded-lg text-xs border border-amber-500/40 text-white hidden" />
+          </div>
+          <button id="btn-create-room" class="w-full bg-[#5865F2] hover:bg-[#4752C4] py-2.5 rounded-xl font-bold text-xs shadow-md">Criar Sala</button>
+        </div>
+
+        <!-- Join Room Box -->
+        <div class="bg-[#1e1f22] p-4 rounded-xl border border-[#35373c] space-y-3 flex flex-col justify-between">
+          <div class="space-y-2">
+            <h3 class="text-sm font-bold text-white">Entrar por Código</h3>
+            <input id="input-join-id" type="text" placeholder="ID da sala (Ex: 4K9F2L)" class="w-full bg-[#2b2d31] px-3 py-2 rounded-lg text-xs font-mono uppercase border border-[#35373c] text-white" />
+            <input id="input-join-password" type="password" placeholder="Senha (se houver)..." class="w-full bg-[#2b2d31] px-3 py-2 rounded-lg text-xs border border-[#35373c] text-white" />
+          </div>
+          <button id="btn-join-room" class="w-full bg-[#35373c] hover:bg-[#404249] py-2.5 rounded-xl font-bold text-xs">Entrar na Sala</button>
+        </div>
+      </div>
+
+      <!-- Public Rooms List -->
+      <div class="space-y-2 pt-2 border-t border-[#1e1f22]">
+        <h4 class="text-xs font-bold text-[#949ba4] uppercase">Salas Públicas Ativas</h4>
+        <div id="public-rooms-container" class="space-y-2 max-h-40 overflow-y-auto">
+          <p class="text-xs text-gray-500 italic">Nenhuma sala pública aberta no momento.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ROOM / STAGE VIEW -->
+  <main id="room-view" class="flex-1 flex flex-col hidden min-h-0 bg-[#313338] relative">
+    
+    <!-- Multi-Stream Grid Container -->
+    <div id="stream-grid" class="flex-1 p-4 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto">
+      <!-- Streams are dynamically injected here -->
+    </div>
+
+    <!-- Bottom Controls Dock -->
+    <div class="h-16 bg-[#1e1f22] border-t border-[#2b2d31] flex items-center justify-center space-x-3 px-6 shrink-0 z-30">
+      <button id="btn-screenshare" class="bg-[#5865F2] hover:bg-[#4752C4] px-6 py-2.5 rounded-2xl font-bold text-xs flex items-center space-x-2 shadow-lg">
+        <span>🖥️ Compartilhar Tela</span>
+      </button>
+      <button id="btn-react-fire" class="bg-[#2b2d31] hover:bg-[#35373c] p-2.5 rounded-xl text-lg">🔥</button>
+      <button id="btn-react-heart" class="bg-[#2b2d31] hover:bg-[#35373c] p-2.5 rounded-xl text-lg">❤️</button>
+      <button id="btn-react-clap" class="bg-[#2b2d31] hover:bg-[#35373c] p-2.5 rounded-xl text-lg">👏</button>
+    </div>
+  </main>
+
+  <!-- Password Prompt Modal -->
+  <div id="password-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+    <div class="bg-[#2b2d31] border border-[#35373c] rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
+      <h3 class="text-base font-bold text-white">🔒 Sala Protegida por Senha</h3>
+      <p class="text-xs text-[#949ba4]">Digite a senha fornecida pelo anfitrião para entrar.</p>
+      <input id="modal-password-input" type="password" placeholder="Senha da sala..." class="w-full bg-[#1e1f22] px-4 py-2 rounded-xl text-sm border border-amber-500/40 text-white font-mono" />
+      <div class="flex justify-end space-x-2">
+        <button id="btn-cancel-password-modal" class="px-4 py-2 rounded-xl text-xs text-gray-400">Cancelar</button>
+        <button id="btn-confirm-password-modal" class="px-5 py-2 rounded-xl bg-[#5865F2] text-white font-bold text-xs">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vanilla Client Logic -->
+  <script src="/app.js"></script>
+</body>
+</html>
