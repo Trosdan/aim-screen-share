@@ -155,6 +155,11 @@ export default function App() {
         return [...prev, data.participant];
       });
       if (soundEffectsEnabled) playJoinSound();
+
+      // If we are currently streaming, send our stream to the new participant
+      if (webrtcRef.current?.getLocalStream()) {
+        webrtcRef.current.callPeer(data.participant.socketId);
+      }
     });
 
     // Remote participant left

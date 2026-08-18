@@ -2,11 +2,12 @@ import { getSocket } from "./socket";
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    { urls: "stun:stun3.l.google.com:19302" },
-    { urls: "stun:stun4.l.google.com:19302" },
+    {
+      urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+      ],
+    },
   ],
   iceCandidatePoolSize: 10,
 };
@@ -38,6 +39,11 @@ export class WebRTCManager {
 
   private setupSocketListeners() {
     const socket = getSocket();
+
+    // Prevent duplicate listener accumulation
+    socket.off("signal-offer");
+    socket.off("signal-answer");
+    socket.off("signal-ice-candidate");
 
     socket.on("signal-offer", async (data: { senderSocketId: string; offer: RTCSessionDescriptionInit }) => {
       await this.handleOffer(data.senderSocketId, data.offer);
@@ -101,6 +107,12 @@ export class WebRTCManager {
     try {
       const pc = this.getOrCreatePeerConnection(targetSocketId);
 
+      // Prevent creating offer if another offer/answer exchange is in progress
+      if (pc.signalingState !== "stable") {
+        console.warn(`[WebRTC] Skipped callPeer to ${targetSocketId}: signalingState is '${pc.signalingState}'`);
+        return;
+      }
+
       // Add local stream tracks if any
       if (this.localStream) {
         // Remove existing senders to avoid duplicate tracks
@@ -133,6 +145,12 @@ export class WebRTCManager {
   private async handleOffer(senderSocketId: string, offer: RTCSessionDescriptionInit) {
     try {
       const pc = this.getOrCreatePeerConnection(senderSocketId);
+
+      // Verify signalingState can accept remote offer
+      if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") {
+        console.warn(`[WebRTC] Ignored offer from ${senderSocketId}: signalingState is '${pc.signalingState}'`);
+        return;
+      }
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
@@ -174,6 +192,14 @@ export class WebRTCManager {
     try {
       const pc = this.peerConnections.get(senderSocketId);
       if (!pc) return;
+
+      // Only set remote description if we are waiting for an answer ('have-local-offer')
+      if (pc.signalingState !== "have-local-offer") {
+        console.warn(
+          `[WebRTC] Ignored answer from ${senderSocketId}: signalingState is '${pc.signalingState}' (expected 'have-local-offer')`
+        );
+        return;
+      }
 
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
 
@@ -229,6 +255,11 @@ export class WebRTCManager {
 
   // Cleanup all peers
   public cleanupAll() {
+    const socket = getSocket();
+    socket.off("signal-offer");
+    socket.off("signal-answer");
+    socket.off("signal-ice-candidate");
+
     this.peerConnections.forEach((pc) => pc.close());
     this.peerConnections.clear();
     this.pendingIceCandidates.clear();
